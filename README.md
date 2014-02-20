@@ -1,3 +1,7 @@
+Riecoin block chain browser https://github.com/tsitu/riecoin-abe
+
+This work is a fork of Abe, modified for Riecoin by tsitu.
+
 Abe: a free block chain browser for Bitcoin-based currencies.
 https://github.com/bitcoin-abe/bitcoin-abe
 
