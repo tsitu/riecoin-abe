@@ -39,16 +39,16 @@ import base58
 
 __version__ = version.__version__
 
-ABE_APPNAME = "Abe"
+ABE_APPNAME = 'Riecoin Blockchain Explorer'
 ABE_VERSION = __version__
-ABE_URL = 'https://github.com/bitcoin-abe/bitcoin-abe'
+ABE_URL = 'https://github.com/tsitu/riecoin-abe'
 
 COPYRIGHT_YEARS = '2011'
 COPYRIGHT = "Abe developers"
 COPYRIGHT_URL = 'https://github.com/bitcoin-abe'
 
-DONATIONS_BTC = '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf'
-DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
+DONATIONS_BTC = '14bzZbQkBA3y5sVP8svxRWHzuHDwuAEAno'
+DONATIONS_RIC = 'RSvhagnjMxFcgXZzZmF45AmA4hh9KCs69f'
 
 TIME1970 = time.strptime('1970-01-01','%Y-%m-%d')
 EPOCH1970 = calendar.timegm(TIME1970)
@@ -69,18 +69,21 @@ DEFAULT_TEMPLATE = """
 </head>
 <body>
     <h1><a href="%(dotdot)s%(HOMEPAGE)s"><img
-     src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="Abe logo" /></a> %(h1)s
+     src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="Riecoin logo" /></a> %(h1)s
     </h1>
     %(body)s
     <p><a href="%(dotdot)sq">API</a> (machine-readable pages)</p>
     <p style="font-size: smaller">
         <span style="font-style: italic">
-            Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a>
+            Riecoin Blockchain Explorer is powered by <a href="%(ABE_URL)s">%(APPNAME)s</a>
         </span>
         %(download)s
         Tips appreciated!
         <a href="%(dotdot)saddress/%(DONATIONS_BTC)s">BTC</a>
-        <a href="%(dotdot)saddress/%(DONATIONS_NMC)s">NMC</a>
+        <a href="%(dotdot)saddress/%(DONATIONS_RIC)s">NMC</a>
+    </p>
+    <p style="font-size: smaller">
+        <a href="https://github.com/tsitu/riecoin-abe">Source</a>
     </p>
 </body>
 </html>
@@ -346,8 +349,11 @@ class Abe:
                         if denominator <= 0:
                             percent_destroyed = '&nbsp;'
                         else:
-                            percent_destroyed = '%5g%%' % (
-                                100.0 - (100.0 * (ss + more) / denominator))
+                            try:
+                                percent_destroyed = '%5g%%' % (
+                                    100.0 - (100.0 * (ss + more) / denominator))
+                            except:
+                                percent_destroyed = '0%'
 
                     body += [
                         '<td>', format_time(started)[:10], '</td>',
@@ -491,7 +497,8 @@ class Abe:
             if total_ss <= 0:
                 percent_destroyed = '&nbsp;'
             else:
-                percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
+                percent_destroyed = '%5g' % (
+                    100.0 - (100.0 * ss / total_ss)) + '%'
 
             body += [
                 '<tr><td><a href="', page['dotdot'], 'block/',
@@ -634,20 +641,9 @@ class Abe:
         coinbase_tx['fees'] = 0
         block_fees = coinbase_tx['total_out'] - generated
 
-        # Proof-of-stake display based loosely on CryptoManiac/novacoin and
-        # http://nvc.cryptocoinexplorer.com.
-        is_stake_chain = chain.has_feature('nvc_proof_of_stake')
-        is_proof_of_stake = is_stake_chain and \
-            len(tx_ids) > 1 and coinbase_tx['total_out'] == 0
-
         for tx_id in tx_ids[1:]:
             tx = txs[tx_id]
             tx['fees'] = tx['total_in'] - tx['total_out']
-
-        if is_proof_of_stake:
-            posgen = -txs[tx_ids[1]]['fees']
-            txs[tx_ids[1]]['fees'] = 0
-            block_fees += posgen
 
         if chain is None:
             page['title'] = ['Block ', block_hash[:4], '...', block_hash[-10:]]
@@ -659,13 +655,7 @@ class Abe:
 
         body += abe.short_link(page, 'b/' + block_shortlink(block_hash))
 
-        body += ['<p>']
-        if is_stake_chain:
-            body += [
-                'Proof of Stake' if is_proof_of_stake else 'Proof of Work',
-                ': ',
-                format_satoshis(generated, chain), ' coins generated<br />\n']
-        body += ['Hash: ', block_hash, '<br />\n']
+        body += ['<p>Hash: ', block_hash, '<br />\n']
 
         if prev_block_hash is not None:
             body += ['Previous Block: <a href="', dotdotblock,
@@ -725,30 +715,17 @@ class Abe:
                      '</td><td>', format_satoshis(tx['fees'], chain),
                      '</td><td>', tx['size'] / 1000.0,
                      '</td><td>']
-            if tx is coinbase_tx:
-                body += [
-                    'POS ' if is_proof_of_stake else '',
-                    'Generation: ', format_satoshis(generated, chain), ' + ',
-                    format_satoshis(block_fees, chain), ' total fees']
+            if tx == coinbase_tx:
+                body += ['Generation: ', format_satoshis(generated, chain),
+                         ' + ', format_satoshis(block_fees, chain), ' total fees']
             else:
                 for txin in tx['in']:
                     body += hash_to_address_link(
                         address_version, txin['pubkey_hash'], page['dotdot'])
-                    body += [
-                        ': ', format_satoshis(txin['value'], chain), '<br />']
+                    body += [': ', format_satoshis(txin['value'], chain),
+                             '<br />']
             body += ['</td><td>']
             for txout in tx['out']:
-                if is_proof_of_stake:
-                    if tx is coinbase_tx:
-                        assert txout['value'] == 0
-                        assert len(tx['out']) == 1
-                        body += [
-                            format_satoshis(posgen, chain),
-                            ' included in the following transaction']
-                        continue
-                    if txout['value'] == 0:
-                        continue
-
                 body += hash_to_address_link(
                     address_version, txout['pubkey_hash'], page['dotdot'])
                 body += [': ', format_satoshis(txout['value'], chain), '<br />']
@@ -2208,7 +2185,7 @@ def main(argv):
             "COPYRIGHT_YEARS": COPYRIGHT_YEARS,
             "COPYRIGHT_URL": COPYRIGHT_URL,
             "DONATIONS_BTC": DONATIONS_BTC,
-            "DONATIONS_NMC": DONATIONS_NMC,
+            "DONATIONS_RIC": DONATIONS_RIC,
             "CONTENT_TYPE": DEFAULT_CONTENT_TYPE,
             "HOMEPAGE": DEFAULT_HOMEPAGE,
             },
@@ -2227,7 +2204,7 @@ def main(argv):
     elif argv[0] in ('-h', '--help'):
         print ("""Usage: python -m Abe.abe [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
 
-A Bitcoin block chain browser.
+A Riecoin block chain browser.
 
   --help                    Show this help message and exit.
   --version                 Show the program version and exit.

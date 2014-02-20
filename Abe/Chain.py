@@ -18,7 +18,7 @@ import deserialize
 import util
 
 def create(policy, **kwargs):
-    #print "create(%s, %r)" % (policy, kwargs)
+    #print "create(%s, %r)\n" % (policy, kwargs)
     if policy in [None, "Bitcoin", "Testnet", "LegacyNoBit8"]:
         return Sha256Chain(**kwargs)
     if policy == "NovaCoin":
@@ -26,19 +26,12 @@ def create(policy, **kwargs):
     return Sha256NmcAuxPowChain(**kwargs)
 
 class Chain(object):
-    def __init__(chain, src=None, **kwargs):
+    def __init__(chain, **kwargs):
         for attr in [
-            'id', 'magic', 'name', 'code3', 'address_version', 'decimals']:
-
-            if attr in kwargs:
-                val = kwargs.get(attr)
-            elif hasattr(chain, attr):
-                continue
-            elif src is not None:
-                val = getattr(src, attr)
-            else:
-                val = None
-            setattr(chain, attr, val)
+            'id', 'magic', 'name', 'code3', 'address_version', 'decimals',
+            'block_version_bit_merge_mine']:
+            if attr in kwargs or not hasattr(chain, attr):
+                setattr(chain, attr, kwargs.get(attr))
 
     def has_feature(chain, feature):
         return False
@@ -82,9 +75,6 @@ class Chain(object):
     def parse_transaction(chain, binary_tx):
         return chain.ds_parse_transaction(util.str_to_ds(binary_tx))
 
-    datadir_conf_file_name = "bitcoin.conf"
-    datadir_rpcport = 8332
-
 class Sha256Chain(Chain):
     def block_header_hash(chain, header):
         return util.double_sha256(header)
@@ -96,12 +86,9 @@ class NmcAuxPowChain(Chain):
 
     def ds_parse_block_header(chain, ds):
         d = Chain.ds_parse_block_header(chain, ds)
-        if d['version'] & (1 << 8):
+        if d['version'] & (1 << chain.block_version_bit_merge_mine):
             d['auxpow'] = deserialize.parse_AuxPow(ds)
         return d
-
-    def has_feature(chain, feature):
-        return feature == 'block_version_bit8_merge_mine'
 
 class Sha256NmcAuxPowChain(Sha256Chain, NmcAuxPowChain):
     pass
@@ -120,6 +107,9 @@ class PpcPosChain(Chain):
         d['block_sig'] = ds.read_bytes(ds.read_compact_size())
         return d
 
+    def has_feature(chain, feature):
+        return feature == 'ppc_proof_of_stake'
+
 class NovaCoin(LtcScryptChain, PpcPosChain):
     def __init__(chain, **kwargs):
         chain.name = 'NovaCoin'
@@ -128,9 +118,3 @@ class NovaCoin(LtcScryptChain, PpcPosChain):
         chain.magic = "\xe4\xe8\xe9\xe5"
         chain.decimals = 6
         Chain.__init__(chain, **kwargs)
-
-    def has_feature(chain, feature):
-        return feature == 'nvc_proof_of_stake'
-
-    datadir_conf_file_name = "novacoin.conf"
-    datadir_rpcport = 8344

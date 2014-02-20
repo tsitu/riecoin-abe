@@ -58,23 +58,8 @@ CONFIG_DEFAULTS = {
 WORK_BITS = 304  # XXX more than necessary.
 
 CHAIN_CONFIG = [
-    {"chain":"Bitcoin",
-     "code3":"BTC", "address_version":"\x00", "magic":"\xf9\xbe\xb4\xd9"},
-    {"chain":"Testnet",
-     "code3":"BC0", "address_version":"\x6f", "magic":"\xfa\xbf\xb5\xda"},
-    {"chain":"Namecoin",
-     "code3":"NMC", "address_version":"\x34", "magic":"\xf9\xbe\xb4\xfe"},
-    {"chain":"Weeds", "network":"Weedsnet",
-     "code3":"WDS", "address_version":"\xf3", "magic":"\xf8\xbf\xb5\xda"},
-    {"chain":"BeerTokens",
-     "code3":"BER", "address_version":"\xf2", "magic":"\xf7\xbf\xb5\xdb"},
-    {"chain":"SolidCoin",
-     "code3":"SCN", "address_version":"\x7d", "magic":"\xde\xad\xba\xbe"},
-    {"chain":"ScTestnet",
-     "code3":"SC0", "address_version":"\x6f", "magic":"\xca\xfe\xba\xbe"},
-    {"chain":"Worldcoin",
-     "code3":"WDC", "address_version":"\x49", "magic":"\xfb\xc0\xb6\xdb"},
-    {"chain":"NovaCoin"},
+    {"chain":"Riecoin",
+     "code3":"RIC", "address_version":"\x3c", "magic":"\xfc\xbc\xb2\xdb"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
@@ -680,7 +665,7 @@ class DataStore(object):
         #print("datadirs: %r" % datadirs)
 
         # By default, scan every dir we know.  This doesn't happen in
-        # practise, because abe.py sets ~/.bitcoin as default datadir.
+        # practise, because abe.py sets ~/.riecoin as default datadir.
         if store.args.datadir is None:
             store.datadirs = datadirs.values()
             return
@@ -694,7 +679,6 @@ class DataStore(object):
         store.datadirs = []
         for dircfg in store.args.datadir:
             loader = None
-            conf = None
 
             if isinstance(dircfg, dict):
                 #print("dircfg is dict: %r" % dircfg)  # XXX
@@ -705,15 +689,13 @@ class DataStore(object):
                         + str(dircfg))
                 if dirname in datadirs:
                     d = datadirs[dirname]
-                    d['loader'] = dircfg.get('loader')
-                    d['conf'] = dircfg.get('conf')
+                    d['loader'] = dircfg.get('loader', None)
                     if d['chain_id'] is None and 'chain' in dircfg:
                         d['chain_id'] = lookup_chain_id(dircfg['chain'])
                     store.datadirs.append(d)
                     continue
 
-                loader = dircfg.get('loader')
-                conf = dircfg.get('conf')
+                loader = dircfg.get('loader', None)
                 chain_id = dircfg.get('chain_id')
                 if chain_id is None:
                     chain_name = dircfg.get('chain')
@@ -769,7 +751,6 @@ class DataStore(object):
                 "blkfile_offset": 0,
                 "chain_id": chain_id,
                 "loader": loader,
-                "conf": conf,
                 }
             store.datadirs.append(d)
 
@@ -803,8 +784,11 @@ class DataStore(object):
 
             # Legacy config option.
             if chain.name in no_bit8_chains and \
-                    chain.has_feature('block_version_bit8_merge_mine'):
-                chain = Chain.create(src=chain, policy="LegacyNoBit8")
+                    chain.block_version_bit_merge_mine == 8:
+                chain = Chain.create(
+                    id=chain.id, magic=chain.magic, name=chain.name,
+                    code3=chain.code3, address_version=chain.address_version,
+                    decimals=chain.decimals, policy="LegacyNoBit8")
 
             store.chains_by.id[chain.id] = chain
             store.chains_by.name[chain.name] = chain
@@ -1071,7 +1055,7 @@ store._ddl['configvar'],
     chain_id    NUMERIC(10) NULL
 )""",
 
-# A block of the type used by Bitcoin.
+# A block of the type used by Riecoin.
 """CREATE TABLE block (
     block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
     block_hash    BIT(256)    UNIQUE NOT NULL,
@@ -1148,7 +1132,7 @@ store._ddl['configvar'],
     FOREIGN KEY (next_block_id) REFERENCES block (block_id)
 )""",
 
-# A transaction of the type used by Bitcoin.
+# A transaction of the type used by Riecoin.
 """CREATE TABLE tx (
     tx_id         NUMERIC(26) NOT NULL PRIMARY KEY,
     tx_hash       BIT(256)    UNIQUE NOT NULL,
@@ -2710,8 +2694,8 @@ store._ddl['txout_approx'],
             return False
         chain = store.chains_by.id[chain_id]
 
-        conffile = dircfg['conf'] or chain.datadir_conf_file_name
-        conffile = os.path.join(dircfg['dirname'], conffile)
+        conffile = dircfg.get("conf",
+                              os.path.join(dircfg['dirname'], "riecoin.conf"))
         try:
             conf = dict([line.strip().split("=", 1)
                          if "=" in line
@@ -2725,9 +2709,10 @@ store._ddl['txout_approx'],
         rpcuser     = conf.get("rpcuser", "")
         rpcpassword = conf["rpcpassword"]
         rpcconnect  = conf.get("rpcconnect", "127.0.0.1")
-        rpcport     = conf.get("rpcport", chain.datadir_rpcport)
+        rpcport     = conf.get("rpcport",
+                               "38332" if "testnet" in conf else "28332")
         url = "http://" + rpcuser + ":" + rpcpassword + "@" + rpcconnect \
-            + ":" + str(rpcport)
+            + ":" + rpcport
 
         def rpc(func, *params):
             store.rpclog.info("RPC>> %s %s", func, params)
@@ -2876,7 +2861,7 @@ store._ddl['txout_approx'],
                     store.imported_bytes(tx['size'])
 
         except util.JsonrpcMethodNotFound, e:
-            store.log.debug("bitcoind %s not supported", e.method)
+            store.log.debug("riecoind %s not supported", e.method)
             return False
 
         except InvalidBlock, e:
